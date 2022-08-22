@@ -1,0 +1,3597 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Program xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="/ StateFileSchema.xsd" VIPLE_Type="1">
+  <Version>4.0.0.1</Version>
+  <ProgrammingPanel Name="Main">
+    <Variables />
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>0</ActivityID>
+      <PreviousActivities>
+        <ActivityID>1</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>28</ActivityID>
+        <ActivityID>29</ActivityID>
+        <ActivityID>56</ActivityID>
+        <ActivityID>83</ActivityID>
+        <ActivityID>87</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>0</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>1</GraphEdgeID>
+        <GraphEdgeID>2</GraphEdgeID>
+        <GraphEdgeID>3</GraphEdgeID>
+        <GraphEdgeID>4</GraphEdgeID>
+        <GraphEdgeID>5</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1881.0344078268</Left>
+        <Top>1023.04062921744</Top>
+      </Location>
+      <Values>
+        <Value Index="0">DijkstrasAlgorithm</Value>
+        <Value Index="1">using System;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
+using System.Linq;
+
+[Serializable]
+public class DijkstrasAlgorithm : CodeUtilities.CodeBase
+{
+	// Constructor
+    public DijkstrasAlgorithm()
+    {
+        
+    }
+    
+   // ----------------------- JSON Structure ----------------------- //
+    public class MapGraph
+	{
+	    public Dictionary&lt;string, string[]&gt; AdjacencyList { get; set; }
+	    public Dictionary&lt;string, Position&gt; Nodes { get; set; }
+	    public Dictionary&lt;string, GraphEdge&gt; Edges { get; set; }
+	}
+	
+	public class Position
+	{
+	    public double WorldPosX { get; set; }
+	    public double WorldPosY { get; set; }
+	    public double WorldPosZ { get; set; }
+	}
+	
+	public class GraphEdge
+	{
+	    public string From { get; set; }
+	    public string To { get; set; }
+	    public float Weight { get; set; }
+	}
+
+    // ----------------------- Heap ----------------------- //
+    public class Element
+    {
+        public string v { get; set; } //vertex
+        public float d { get; set; } // distance
+        public string p { get; set; } // parent
+        public Element(string vertex, int distance, string parent)
+        {
+            v = vertex;
+            d = distance;
+            p = parent;
+        }
+    };
+
+    public class MinHeap
+    {
+        private List&lt;Element&gt; elements;
+        private Dictionary&lt;string, int&gt; indices;
+
+        // Current number of elements in the heap
+        public int size { get; set; }
+        public MinHeap()
+        {
+            elements = new List&lt;Element&gt;();
+            indices = new Dictionary&lt;string, int&gt;();
+            size = 0;
+        }
+
+        // Returns the index of the parent
+        public int Parent(int i)
+        {
+            return (i-1)/2;
+        }
+
+        // Returns the index of the left child node
+        public int Left(int i)
+        {
+            return (2*i)+1;
+        }
+
+        // Returns the index of the right child node
+        public int Right(int i)
+        {
+            return (2*i)+2;
+        }
+
+        // Inserts an element at the end
+        public void Insert(string key, Element newElement)
+        {
+            elements.Add(newElement);
+            indices.Add(key, size);
+            FixHeap(size++);
+        }
+
+        // Decrease the distance value of a node at a given index
+        public void DecreaseKey(string node, float newValue, string parent)
+        {
+            int index = indices[node];
+            elements[index].d = newValue;
+            FixHeap(index);
+        }
+
+        public void MinHeapify(int i)
+        {
+            int left = Left(i);
+            int right = Right(i);
+            int smallest;
+
+            if ((left &lt; size) &amp;&amp; (elements[left].d &lt; elements[i].d))
+                smallest = left;
+            else
+                smallest = i;
+
+            if ((right &lt; size) &amp;&amp; (elements[right].d &lt; elements[smallest].d))
+                smallest = right;
+
+            if (smallest != i)
+            {
+                Element temp = elements[smallest];
+
+                // Update indices
+                indices[temp.v] = i;
+                indices[elements[i].v] = smallest;
+
+                // Swap nodes
+                elements[smallest] = elements[i];
+                elements[i] = temp;
+
+                MinHeapify(smallest);
+            }
+        }
+
+        public void FixHeap(int index)
+        {
+            // Fix the min heap property if it is violated 
+            while (index != 0 &amp;&amp; elements[index].d &lt; elements[Parent(index)].d)
+            {
+                Element temp = elements[index];
+
+                // Update indices
+                indices[temp.v] = Parent(index);
+                indices[elements[Parent(index)].v] = index;
+
+                // Swap nodes
+                elements[index] = elements[Parent(index)];
+                elements[Parent(index)] = temp;
+
+                index = Parent(index);
+            }
+        }
+
+        //Extracts the min number from the heap and removes it
+        public Element ExtractMin()
+        {
+            Element min = elements[0];
+            elements[0] = elements[size-1];
+            indices[elements[0].v] = 0;
+            size--;
+            MinHeapify(0);
+
+            return min;
+        }
+    }
+
+    // ----------------------- Dijkstra ----------------------- //
+    public class AdjNode
+    {
+        public string neighbor { get; set; }
+        public float weight { get; set; }
+
+        public AdjNode(string n, float w)
+        {
+            neighbor = n;
+            weight = w;
+        }
+    }
+    
+    private string dijkstra(Dictionary&lt;string, List&lt;AdjNode&gt;&gt; adjacencyList, string srcVertex, string dstVertex)
+    {
+        MinHeap queue = new MinHeap();
+        Dictionary&lt;string, Element&gt; results = new Dictionary&lt;string, Element&gt;();
+
+        // Initialize min heap with all vertices and distance values
+        foreach (string key in adjacencyList.Keys)
+        {
+            Element newElement = new Element(key, int.MaxValue, null);
+            queue.Insert(key, newElement);
+            results.Add(key, newElement);
+        }
+
+        queue.DecreaseKey(srcVertex, 0, null);
+        
+        while (queue.size != 0)
+        {
+            // Extract the vertex with minimum distance value
+            Element u = queue.ExtractMin(); 
+
+            // Traverse through all the adjacent nodes of u and update distances
+            foreach (AdjNode current in adjacencyList[u.v])
+            {
+                if (u.d != int.MaxValue &amp;&amp; results[current.neighbor].d &gt; (u.d + current.weight))
+                {
+                    results[current.neighbor].d = u.d + current.weight;
+                    results[current.neighbor].p = u.v;
+                    
+                    //PrintLine(current.weight.ToString());
+
+                    queue.DecreaseKey(current.neighbor, results[current.neighbor].d, results[current.neighbor].p);
+                }
+            }
+        }
+
+        if (results[dstVertex].d == int.MaxValue)
+        {
+            PrintLine("Unreachable destination.");
+            return "Error";
+        }
+        else
+        {
+            string path = printPath(results, dstVertex);
+            //string o = String.Format("{0}");
+            PrintLine(path);
+            return path;
+        }
+    }
+
+    // Function to print shortest path from source to destination
+    private string printPath(Dictionary&lt;string, Element&gt; results, string destination)
+    {
+        string output = "";
+
+        // Base case: If the vertex is source then stop recursion
+        if (results[destination].p == null)
+            return destination + " ";
+
+        output += printPath(results, results[destination].p);
+        output += destination + " ";
+        return output;
+    }
+    private float getDistance(string nodeA, string nodeB)
+    {
+    	return 0;
+    }
+    private string getEdgeNum(string from, string to, MapGraph graph){
+    
+    	string output = "";
+    	
+    	try{
+    	
+    		foreach(var road in graph.Edges){
+    			if(road.Value.From.Equals(from) &amp;&amp; road.Value.To.Equals(to)){
+    			
+    				output = road.Key.ToString();
+    				return output;
+    				//PrintLine(road.Key.ToString());
+    			}
+    			
+    			
+    		}
+    	
+    	/*
+    		for(int i = 1; i &lt;= graph.Edges.Count; i++){
+    		
+    		
+    			if(graph.Edges[i.ToString()].From.Equals(from) &amp;&amp; graph.Edges[i.ToString()].To.Equals(to)){
+    				
+    					output = i.ToString();
+    					return output;
+    			}
+    			else if(graph.Edges[i.ToString()].From.Equals(to) &amp;&amp; graph.Edges[i.ToString()].To.Equals(from)){
+    					output = i.ToString();
+    					return output;
+    			}
+    		}
+
+    	*/
+    	}
+    	catch(Exception e){
+    		PrintLine("Error: " + e);
+    		
+    	}
+    	
+ 
+    	
+    	return output;
+    }
+    
+    private string getPathWeight(string[] path, MapGraph graph){
+    
+    	
+    	double TotalWeight = 0.0;
+    	
+    	try{
+    	
+    	
+    	
+    		for(int i = 0; i &lt; path.Length - 2; i++){
+    		
+    			string from = path[i];
+    			string to = path[i+1];
+    		
+    			string roadNum = getEdgeNum(from,to,graph);
+    			double weight = Double.Parse(graph.Edges[roadNum].Weight.ToString());
+    			
+    			PrintLine("From " + from + " To: " + to + " Cost "+ weight);
+    		
+    			TotalWeight += weight;
+    		}
+    		
+    		PrintLine("");
+    	}
+    	catch(Exception e){
+    		PrintLine("Error~~~~~~" + e);
+    	}
+    	
+    	return TotalWeight.ToString();
+    }
+    
+    private bool isSamePath(string[] path1, string path2){
+    	
+    	bool rlt=false;
+    	
+    
+    	return rlt;
+    }
+    
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+    	Dictionary&lt;string, Object&gt; input = (Dictionary&lt;string, Object&gt;)Input;
+        Dictionary&lt;string, Object&gt; final_results = new Dictionary&lt;string, Object&gt;()
+        {
+        	{"current", null},{"path", null}, {"test", null}, {"c_path",null},{"o_cost", null}
+        }; // c_path used to compare the path plan
+    	string src = input["src"].ToString();
+    	string dst = input["dst"].ToString();
+    	
+    	int count = Int32.Parse(input["g_count"].ToString());
+    	double duration = Double.Parse(input["duration"].ToString());
+    	//PrintLine("Global Counter: " + count);
+    	
+    	
+    	//string duration = input["duration"].ToString();
+    	//final_results["duration"] = duration;
+    	
+    	JavaScriptSerializer ser = new JavaScriptSerializer();
+    	MapGraph graph = ser.Deserialize&lt;MapGraph&gt;(input["json"].ToString());
+    	
+    	//PrintLine(graph.Edges["161"].Weight.ToString());
+    	
+    	
+    	
+    	
+    	
+    	//Check if entered nodes exists
+        if (!graph.Nodes.ContainsKey(src))
+        {
+        	PrintLine("Source Node: " + src + " was not found\n");
+        	Output = "Error";
+        	return;
+        }
+        if (!graph.Nodes.ContainsKey(dst))
+        {
+        	PrintLine("Destination Node: " + dst + " was not found\n");
+        	Output = "Error";
+        	return;
+		}
+        // Create an adjacency list
+        Dictionary&lt;string, List&lt;AdjNode&gt;&gt; adjacencyList = new Dictionary&lt;string, List&lt;AdjNode&gt;&gt;();
+		foreach (KeyValuePair&lt;string, GraphEdge&gt; entry in graph.Edges)
+    	{
+        	List&lt;AdjNode&gt; list;
+        	
+        	
+             
+
+        	// Add a dictionary entry if the key doesn't exist
+        	if (!adjacencyList.TryGetValue(entry.Value.From, out list))
+        	{
+				list = new List&lt;AdjNode&gt;();
+				adjacencyList.Add(entry.Value.From, list);  
+        	}
+
+        	AdjNode newNode = new AdjNode(entry.Value.To, entry.Value.Weight);
+        	list.Add(newNode); 
+        	//PrintLine(newNode.weight.ToString());
+        	
+        	//PrintLine(entry.Value.To.ToString() + entry.Value.Weight.ToString());
+    	}
+    	
+    	//History Path
+    	string latestPath = "";
+    	
+    	PrintLine("***** Plan *****");
+    	string path = dijkstra(adjacencyList, src, dst);
+    	PrintLine("");
+    	
+    	PrintLine("***** Plan Details *****");
+    	//PrintLine();
+    	
+    	if(count == 1){
+    		latestPath = path;
+    	}else{
+    		if(!path.Equals(latestPath)){
+    			latestPath = path;
+    			
+    		}
+    	}
+    	
+    	if (path != "Error")
+    	{
+    		final_results["c_path"] = path;
+    		string[] nodes = path.Split(' ');
+    		
+ 
+ 			final_results["current"] = nodes[1];
+ 			
+ 			string EdgeNum = getEdgeNum(nodes[0], nodes[1], graph); //Obtain the ID of the driving road
+ 			double newDuration = duration + Double.Parse(graph.Edges[EdgeNum].Weight.ToString()); //The estimation of cost of the driving road
+ 			
+ 			string planW = getPathWeight(nodes,graph);
+ 			//PrintLine("Plan Progress: "+ planW+"/"+planW); // Get total cost of Path
+ 			PrintLine("***** Time Info *****");
+ 			PrintLine("Estimated Total Time To The Destination: " + planW);
+ 			PrintLine("Estimated Total Time Used After This Drive: " + newDuration);
+ 			final_results["o_cost"] = planW.ToString();
+ 			PrintLine("");
+ 			
+ 			PrintLine("***** Status *****"); 			
+ 			PrintLine("-1- Car is applying path From [" + nodes[0] + " To " + nodes[1]+" RoadID-" + EdgeNum+"]");
+ 			
+ 			PrintLine("-2- Road#" + EdgeNum + " cost[" + graph.Edges[EdgeNum].Weight.ToString() + "] added in Time. ");
+ 			PrintLine("");
+ 			
+ 			
+ 			final_results["newDuration"] = newDuration.ToString();
+ 			
+ 			PrintLine("");
+ 			
+ 			
+	
+ 			
+ 			
+    		
+    		
+    		// Create the path json to send to Unity
+        	for (int i = 0; i &lt; nodes.Length; i++)
+        	{
+            	nodes[i] = "\"" + nodes[i] + "\"";
+       		}
+
+        	final_results["path"] = "{\"route\":{\"path\":[" + string.Join(", ", nodes, 0, nodes.Length-1) + "], \"next\":true}}";
+    	}
+    	else
+    	{
+    		Output = "Error";
+    	}
+    	
+    	Output = final_results;
+    }
+}</Value>
+        <Value Index="2">Microsoft.CSharp.dll</Value>
+        <Value Index="3">mscorlib.dll</Value>
+        <Value Index="4">System.Configuration.dll</Value>
+        <Value Index="5">System.Core.dll</Value>
+        <Value Index="6">System.dll</Value>
+        <Value Index="7">System.Linq.dll</Value>
+        <Value Index="8">System.Runtime.dll</Value>
+        <Value Index="9">System.Web.dll</Value>
+        <Value Index="10">System.Web.Extensions.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>4</ActivityNameInt>
+      <ActivityID>1</ActivityID>
+      <PreviousActivities Index="0">
+        <ActivityID>6</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="1">
+        <ActivityID>5</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="2">
+        <ActivityID>53</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="3">
+        <ActivityID>48</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="4">
+        <ActivityID>82</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>0</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines Index="0">
+        <GraphEdgeID>6</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="1">
+        <GraphEdgeID>7</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="2">
+        <GraphEdgeID>8</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="3">
+        <GraphEdgeID>9</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="4">
+        <GraphEdgeID>10</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>0</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1694.78072896053</Left>
+        <Top>983.513211022775</Top>
+      </Location>
+      <Values>
+        <Value Index="0">src</Value>
+        <Value Index="1">dst</Value>
+        <Value Index="2">json</Value>
+        <Value Index="3">g_count</Value>
+        <Value Index="4">duration</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>12</ActivityNameInt>
+      <ActivityID>2</ActivityID>
+      <PreviousActivities>
+        <ActivityID>3</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>4</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>11</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>12</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>496.528640811356</Left>
+        <Top>1039.55668767558</Top>
+      </Location>
+      <Values>
+        <Value Index="0">PromptDialog</Value>
+        <Value Index="1">Enter destination</Value>
+        <Value Index="2">6thAve_3rdSt</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>3</ActivityID>
+      <PreviousActivities>
+        <ActivityID>27</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>2</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>13</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>11</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>285.300069382785</Left>
+        <Top>1039.55668767558</Top>
+      </Location>
+      <Values>
+        <Value>source</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>4</ActivityID>
+      <PreviousActivities>
+        <ActivityID>2</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>24</ActivityID>
+        <ActivityID>73</ActivityID>
+        <ActivityID>93</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>12</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>14</GraphEdgeID>
+        <GraphEdgeID>16</GraphEdgeID>
+        <GraphEdgeID>88</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>638.328640811356</Left>
+        <Top>1039.55668767558</Top>
+      </Location>
+      <Values>
+        <Value>destination</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>5</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>1</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>17</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>7</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>989.550000034656</Left>
+        <Top>969.047623104753</Top>
+      </Location>
+      <Values>
+        <Value>state.destination</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>6</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>1</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>18</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>6</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>999.452265406825</Left>
+        <Top>853.897892791922</Top>
+      </Location>
+      <Values>
+        <Value>state.source</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>19</ActivityNameInt>
+      <ActivityID>7</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>55.3267509102599</Left>
+        <Top>46.2719326051178</Top>
+      </Location>
+      <Values>
+        <Value Index="0">localhost</Value>
+        <Value Index="1">1350</Value>
+        <Value Index="2">WiFi</Value>
+        <Value Index="3">3000</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>6</ActivityNameInt>
+      <ActivityID>8</ActivityID>
+      <PreviousActivities>
+        <ActivityID>28</ActivityID>
+      </PreviousActivities>
+      <NextActivities Index="0">
+        <ActivityID>26</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities>
+        <ActivityID>25</ActivityID>
+      </AlternateNextActivities>
+      <IncomingLines>
+        <GraphEdgeID>19</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines Index="0">
+        <GraphEdgeID>20</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines>
+        <GraphEdgeID>21</GraphEdgeID>
+      </AlternateOutgoingLines>
+      <Location>
+        <Left>2412.38362320444</Left>
+        <Top>912.441218280576</Top>
+      </Location>
+      <Values>
+        <Value Index="0">value == "Error"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>3</ActivityNameInt>
+      <ActivityID>9</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>10</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>22</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>23</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1000.84216883275</Left>
+        <Top>1309.45768892047</Top>
+      </Location>
+      <Values>
+        <Value>"No map data"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>10</ActivityID>
+      <PreviousActivities>
+        <ActivityID>9</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>11</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>23</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>24</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1122.08661327719</Left>
+        <Top>1309.10213336492</Top>
+      </Location>
+      <Values>
+        <Value>map</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>3</ActivityNameInt>
+      <ActivityID>11</ActivityID>
+      <PreviousActivities>
+        <ActivityID>10</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>12</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>24</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>25</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1241.64216883275</Left>
+        <Top>1309.2799111427</Top>
+      </Location>
+      <Values>
+        <Value>{"getgraph":"true"}</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>51</ActivityNameInt>
+      <ActivityID>12</ActivityID>
+      <PreviousActivities>
+        <ActivityID>11</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>13</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>25</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>26</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1375.5977243883</Left>
+        <Top>1310.46086352365</Top>
+      </Location>
+      <Values>
+        <Value Index="0">Robot/IoT Controller 0</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="true">
+      <ActivityNameInt>5</ActivityNameInt>
+      <ActivityID>13</ActivityID>
+      <PreviousActivities>
+        <ActivityID>12</ActivityID>
+        <ActivityID>18</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>18</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>26</GraphEdgeID>
+        <GraphEdgeID>27</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>28</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1177.52684381698</Left>
+        <Top>1481.66123001417</Top>
+      </Location>
+      <Values />
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>52</ActivityNameInt>
+      <ActivityID>14</ActivityID>
+      <PreviousActivities />
+      <NextActivities>
+        <ActivityID>15</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines>
+        <GraphEdgeID>29</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>55.7673163418289</Left>
+        <Top>159.569452416643</Top>
+      </Location>
+      <Values>
+        <Value Index="0">Robot/IoT Controller 0</Value>
+        <Value Index="1">-1</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>15</ActivityID>
+      <PreviousActivities>
+        <ActivityID>14</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>16</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>29</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>30</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>177.456205230718</Left>
+        <Top>163.013896861093</Top>
+      </Location>
+      <Values>
+        <Value Index="0">ReceiveMap</Value>
+        <Value Index="1">using System;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
+
+[Serializable]
+public class ReceiveMap: CodeUtilities.CodeBase
+{
+	// Constructor
+    public ReceiveMap()
+    {
+        
+    }
+    
+   // --------------------------- Json Structure --------------------------- //
+	public class MapGraph
+	{
+	    public Dictionary&lt;string, string[]&gt; AdjacencyList { get; set; }
+	    public Dictionary&lt;string, Position&gt; Nodes { get; set; }
+	    public Dictionary&lt;string, GraphEdge&gt; Edges { get; set; }
+	}
+	
+	public class Position
+	{
+	    public double WorldPosX { get; set; }
+	    public double WorldPosY { get; set; }
+	    public double WorldPosZ { get; set; }
+	}
+	
+	public class GraphEdge
+	{
+	    public string From { get; set; }
+	    public string To { get; set; }
+	    public float Weight { get; set; }
+	}
+	
+	// ----------------------------------------------------------------------- //
+    
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+    	Output = "No map data";
+    	try 
+    	{
+    		JavaScriptSerializer ser = new JavaScriptSerializer();
+	    	MapGraph graph = ser.Deserialize&lt;MapGraph&gt;(Input.ToString());
+	
+			if (graph.Nodes != null)
+				Output = ser.Serialize(graph);
+    	}
+    	catch(Exception e) 
+    	{
+    		if(Input.ToString() == "Arrived")
+    		{
+    			Output = "Arrived";
+    		}
+    	}
+    }
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">System.Configuration.dll</Value>
+        <Value Index="6">System.Core.dll</Value>
+        <Value Index="7">System.dll</Value>
+        <Value Index="8">System.Drawing.dll</Value>
+        <Value Index="9">System.Dynamic.dll</Value>
+        <Value Index="10">System.Runtime.dll</Value>
+        <Value Index="11">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="12">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="13">System.Web.Extensions.dll</Value>
+        <Value Index="14">System.Windows.Forms.dll</Value>
+        <Value Index="15">System.Xaml.dll</Value>
+        <Value Index="16">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>6</ActivityNameInt>
+      <ActivityID>16</ActivityID>
+      <PreviousActivities>
+        <ActivityID>15</ActivityID>
+      </PreviousActivities>
+      <NextActivities Index="0">
+        <ActivityID>40</ActivityID>
+      </NextActivities>
+      <NextActivities Index="1">
+        <ActivityID>17</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>30</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines Index="0">
+        <GraphEdgeID>31</GraphEdgeID>
+      </OutgoingLines>
+      <OutgoingLines Index="1">
+        <GraphEdgeID>32</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>329.633983008495</Left>
+        <Top>158.658341305533</Top>
+      </Location>
+      <Values>
+        <Value Index="0">value == "Arrived"</Value>
+        <Value Index="1">value != "No map data"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>17</ActivityID>
+      <PreviousActivities>
+        <ActivityID>16</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>32</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>520.100649675162</Left>
+        <Top>254.902785749983</Top>
+      </Location>
+      <Values>
+        <Value>map</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>6</ActivityNameInt>
+      <ActivityID>18</ActivityID>
+      <PreviousActivities>
+        <ActivityID>13</ActivityID>
+      </PreviousActivities>
+      <NextActivities Index="0">
+        <ActivityID>19</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities>
+        <ActivityID>13</ActivityID>
+      </AlternateNextActivities>
+      <IncomingLines>
+        <GraphEdgeID>28</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines Index="0">
+        <GraphEdgeID>33</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines>
+        <GraphEdgeID>27</GraphEdgeID>
+      </AlternateOutgoingLines>
+      <Location>
+        <Left>999.51810414412</Left>
+        <Top>1828.39288567745</Top>
+      </Location>
+      <Values>
+        <Value Index="0">state.map != "No map data"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>19</ActivityID>
+      <PreviousActivities>
+        <ActivityID>18</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>49</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>33</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>34</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1243.40381842982</Left>
+        <Top>1834.35669520126</Top>
+      </Location>
+      <Values>
+        <Value>state.map</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>20</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>53.2334027161176</Left>
+        <Top>1125.84240196129</Top>
+      </Location>
+      <Values>
+        <Value>Enter the destination of the 
+intersection node as "x_x" or the 
+street names found in the
+simulator</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>21</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>53.2334027161176</Left>
+        <Top>1230.14367180255</Top>
+      </Location>
+      <Values>
+        <Value>This code activity has an example
+of  deserializing a json string, 
+passing multiple values into a code activity
+and outputing multiple values out</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>22</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>964.21889779491</Left>
+        <Top>1891.7519332965</Top>
+      </Location>
+      <Values>
+        <Value>Wait until we 
+receive the map</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>23</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>63.950649675162</Left>
+        <Top>268.650404797603</Top>
+      </Location>
+      <Values>
+        <Value>[Map Initialization]
+
+Parse through all 
+the jsons received through
+the Message In, and update
+the map if we parse the map json</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>24</ActivityID>
+      <PreviousActivities>
+        <ActivityID>4</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>31</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>14</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>35</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>448.266736049452</Left>
+        <Top>1129.12176704065</Top>
+      </Location>
+      <Values>
+        <Value>state.destination</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>51</ActivityNameInt>
+      <ActivityID>25</ActivityID>
+      <PreviousActivities>
+        <ActivityID>8</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>42</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>21</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>36</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2591.45927479519</Left>
+        <Top>973.092646852009</Top>
+      </Location>
+      <Values>
+        <Value Index="0">Robot/IoT Controller 0</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>26</ActivityID>
+      <PreviousActivities>
+        <ActivityID>8</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>32</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>20</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>37</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2713.7976533296</Left>
+        <Top>880.263123042479</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>12</ActivityNameInt>
+      <ActivityID>27</ActivityID>
+      <PreviousActivities />
+      <NextActivities>
+        <ActivityID>3</ActivityID>
+        <ActivityID>35</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines>
+        <GraphEdgeID>13</GraphEdgeID>
+        <GraphEdgeID>38</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>94.4706790295151</Left>
+        <Top>1029.27361430758</Top>
+      </Location>
+      <Values>
+        <Value Index="0">PromptDialog</Value>
+        <Value Index="1">Enter starting node</Value>
+        <Value Index="2">11thAve_1stSt</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>28</ActivityID>
+      <PreviousActivities>
+        <ActivityID>0</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>8</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>1</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>19</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2271.41269284923</Left>
+        <Top>916.854551613913</Top>
+      </Location>
+      <Values>
+        <Value>path</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>29</ActivityID>
+      <PreviousActivities>
+        <ActivityID>0</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>30</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>2</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>39</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2260.84761348415</Left>
+        <Top>778.105345264707</Top>
+      </Location>
+      <Values>
+        <Value>current</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>30</ActivityID>
+      <PreviousActivities>
+        <ActivityID>29</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>36</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>39</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>40</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2400.30876444071</Left>
+        <Top>785.845027804389</Top>
+      </Location>
+      <Values>
+        <Value>source</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>8</ActivityNameInt>
+      <ActivityID>31</ActivityID>
+      <PreviousActivities>
+        <ActivityID>24</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>6</ActivityID>
+        <ActivityID>5</ActivityID>
+        <ActivityID>47</ActivityID>
+        <ActivityID>82</ActivityID>
+        <ActivityID>9</ActivityID>
+        <ActivityID>97</ActivityID>
+        <ActivityID>102</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>35</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>18</GraphEdgeID>
+        <GraphEdgeID>17</GraphEdgeID>
+        <GraphEdgeID>41</GraphEdgeID>
+        <GraphEdgeID>42</GraphEdgeID>
+        <GraphEdgeID>22</GraphEdgeID>
+        <GraphEdgeID>92</GraphEdgeID>
+        <GraphEdgeID>99</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>621.078565366934</Left>
+        <Top>1147.13917949148</Top>
+      </Location>
+      <Values>
+        <Value>state.source != state.destination</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>9</ActivityNameInt>
+      <ActivityID>32</ActivityID>
+      <PreviousActivities>
+        <ActivityID>26</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>33</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>37</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>43</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2963.35638348833</Left>
+        <Top>888.168837328199</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>5</ActivityNameInt>
+      <ActivityID>33</ActivityID>
+      <PreviousActivities>
+        <ActivityID>32</ActivityID>
+        <ActivityID>44</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>34</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>43</GraphEdgeID>
+        <GraphEdgeID>44</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>45</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3267.77543110738</Left>
+        <Top>1014.21772621709</Top>
+      </Location>
+      <Values />
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>10</ActivityNameInt>
+      <ActivityID>34</ActivityID>
+      <PreviousActivities>
+        <ActivityID>33</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>81</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>45</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>46</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3341.92463745658</Left>
+        <Top>1015.56375796312</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>35</ActivityID>
+      <PreviousActivities>
+        <ActivityID>27</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>38</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>278.233402716118</Left>
+        <Top>1128.49943397471</Top>
+      </Location>
+      <Values>
+        <Value>finalPath</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>36</ActivityID>
+      <PreviousActivities>
+        <ActivityID>30</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>37</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>40</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>47</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2543.48863242887</Left>
+        <Top>785.845027804389</Top>
+      </Location>
+      <Values>
+        <Value>state.finalPath+ " " + state.source</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>37</ActivityID>
+      <PreviousActivities>
+        <ActivityID>36</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>47</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2766.64527237722</Left>
+        <Top>781.413281772643</Top>
+      </Location>
+      <Values>
+        <Value>finalPath</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>38</ActivityID>
+      <PreviousActivities>
+        <ActivityID>39</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>48</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3884.1647113524</Left>
+        <Top>986.02433103521</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>39</ActivityID>
+      <PreviousActivities>
+        <ActivityID>81</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>38</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>49</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>48</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3665.33889643225</Left>
+        <Top>986.329795056874</Top>
+      </Location>
+      <Values>
+        <Value>"Final Path: " +state.finalPath </Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>40</ActivityID>
+      <PreviousActivities>
+        <ActivityID>16</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>31</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>523.605411579925</Left>
+        <Top>160.342785749973</Top>
+      </Location>
+      <Values>
+        <Value>arrived</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>6</ActivityNameInt>
+      <ActivityID>41</ActivityID>
+      <PreviousActivities>
+        <ActivityID>42</ActivityID>
+      </PreviousActivities>
+      <NextActivities Index="0">
+        <ActivityID>43</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities>
+        <ActivityID>42</ActivityID>
+      </AlternateNextActivities>
+      <IncomingLines>
+        <GraphEdgeID>50</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines Index="0">
+        <GraphEdgeID>51</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines>
+        <GraphEdgeID>52</GraphEdgeID>
+      </AlternateOutgoingLines>
+      <Location>
+        <Left>2790.60634364288</Left>
+        <Top>1080.26090082026</Top>
+      </Location>
+      <Values>
+        <Value Index="0">state.arrived == "Arrived"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>5</ActivityNameInt>
+      <ActivityID>42</ActivityID>
+      <PreviousActivities>
+        <ActivityID>25</ActivityID>
+        <ActivityID>41</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>41</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>36</GraphEdgeID>
+        <GraphEdgeID>52</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>50</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2716.38412142066</Left>
+        <Top>1086.48312304248</Top>
+      </Location>
+      <Values />
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>3</ActivityNameInt>
+      <ActivityID>43</ActivityID>
+      <PreviousActivities>
+        <ActivityID>41</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>44</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>51</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>53</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2975.76189919844</Left>
+        <Top>1091.63867859804</Top>
+      </Location>
+      <Values>
+        <Value>""</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>44</ActivityID>
+      <PreviousActivities>
+        <ActivityID>43</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>33</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>53</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>44</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3137.71745475399</Left>
+        <Top>1084.34978970915</Top>
+      </Location>
+      <Values>
+        <Value>arrived</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>45</ActivityID>
+      <PreviousActivities>
+        <ActivityID>49</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>53</ActivityID>
+        <ActivityID>54</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>54</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>55</GraphEdgeID>
+        <GraphEdgeID>56</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1597.75358787641</Left>
+        <Top>1814.64924651174</Top>
+      </Location>
+      <Values>
+        <Value Index="0">UpdateMap</Value>
+        <Value Index="1">using System;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
+
+[Serializable]
+public class UpdateMap : CodeUtilities.CodeBase
+{
+    public UpdateMap()
+    {
+        
+    }
+    
+       // --------------------------- Json Structure --------------------------- //
+	public class MapGraph
+	{
+	    public Dictionary&lt;string, string[]&gt; AdjacencyList { get; set; }
+	    public Dictionary&lt;string, Position&gt; Nodes { get; set; }
+	    public Dictionary&lt;string, GraphEdge&gt; Edges { get; set; }
+	}
+	
+	public class Position
+	{
+	    public double WorldPosX { get; set; }
+	    public double WorldPosY { get; set; }
+	    public double WorldPosZ { get; set; }
+	}
+	
+	public class GraphEdge
+	{
+	    public string From { get; set; }
+	    public string To { get; set; }
+	    public float Weight { get; set; }
+	}
+	
+	// ----------------------------------------------------------------------- //
+    
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+		
+        
+      	try 
+    	{
+    		//Break Down Inputs
+    		Dictionary&lt;string, Object&gt; input = (Dictionary&lt;string, Object&gt;)Input; 
+    	
+    		//Libraries Init
+    		Random rand = new Random();		 
+    		JavaScriptSerializer ser = new JavaScriptSerializer();
+    		
+    		//Receive Inputs
+    		MapGraph graph = ser.Deserialize&lt;MapGraph&gt;(input["json"].ToString());   		
+    		string GlobalCount_tmp = input["g_count"].ToString();
+    		int GlobalCount = Int32.Parse(GlobalCount_tmp);
+    		
+    		double currentTime = Double.Parse(input["currentTime"].ToString());
+    		//PrintLine("!!Current Time: "+currentTime);
+    		//string duration_tmp = input["duration"].ToString();
+    		//int duration = Int32.Parse(duration_tmp);
+    		
+    		double test = 0.0;
+    		
+    		
+    		
+    		//PrintLine(duration.ToString());
+    		
+    		
+    		
+    		
+    		//Constant
+    		double v_RL = 0.8;//0.8 miles
+    		double h_RL = 0.6;//0.6 miles
+    		int dsty = 300;
+    		
+    		int time_frame = 25;
+    		
+    		if(GlobalCount == 1){
+    		
+    			time_frame = rand.Next(24);
+    		}
+    		else{
+    			
+    		}
+    		
+    		//PrintLine("@@@"+GlobalCount);
+    		
+    		
+    		
+    		//Rate == Travel Times
+    		//Rate = (Density x Road Length)/Flow
+    		
+
+    		
+    		
+    		
+    		int rate = 1000;
+    		
+	    	
+	    	//If 
+	    	
+	    	    	
+    	
+    	
+    		foreach(var road in graph.Edges){
+					road.Value.Weight = (float)rand.NextDouble()*rate;
+    				//PrintLine(road.Value.Weight.ToString());
+    			}
+    			
+    			
+    		
+	    	//Update Weight(Density)
+	    	
+	    	
+	    	/*
+	    	//Vertical Edges
+	    	graph.Edges["161"].Weight = (float)rand.NextDouble()*rate; // 11_1 &amp; 10_1
+	    	PrintLine("Updating 161 " + graph.Edges["161"].Weight);
+	    	
+	    	graph.Edges["160"].Weight = (float)rand.NextDouble()*rate; // 10_1 &amp; 9_1
+	    	PrintLine("Updating 160 " + graph.Edges["160"].Weight);
+	    	
+	    	graph.Edges["125"].Weight = (float)rand.NextDouble()*rate; // 9_1 &amp; 8_1
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["107"].Weight = (float)rand.NextDouble()*rate; // 8_1 &amp; 7_1
+	    	PrintLine("Updating");
+	    	
+	    	
+	    	graph.Edges["165"].Weight = (float)rand.NextDouble()*rate; // 11_2 &amp; 10_2
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["146"].Weight = (float)rand.NextDouble()*rate; // 10_2 &amp; 9_2
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["129"].Weight = (float)rand.NextDouble()*rate; // 9_2 &amp; 8_2
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["128"].Weight = (float)rand.NextDouble()*rate; // 8_2 &amp; 7_2
+	    	PrintLine("Updating");
+	    	
+	    	
+	    	graph.Edges["169"].Weight = (float)rand.NextDouble()*rate; // 11_3 &amp; 10_3
+	    	PrintLine("Updating");
+	    	graph.Edges["150"].Weight = (float)rand.NextDouble()*rate; // 10_3 &amp; 9_3
+	    	PrintLine("Updating");
+	    	graph.Edges["133"].Weight = (float)rand.NextDouble()*rate; // 9_3 &amp; 8_3
+	    	PrintLine("Updating");
+	    	graph.Edges["115"].Weight = (float)rand.NextDouble()*rate; // 8_3 &amp; 7_3
+	    	PrintLine("Updating");
+	    	
+	    	
+	    	
+	    	//Horizontal Edges
+	    	
+	    	//graph.Edges["177"].Weight = (float)rand.NextDouble()*rate; // 11_1 &amp; 11_2    	
+	    	//graph.Edges["181"].Weight = (float)rand.NextDouble()*rate; // 11_2 &amp; 11_3
+	    	
+	    	
+	    	graph.Edges["159"].Weight = (float)rand.NextDouble()*rate; // 10_1 &amp; 10_2
+	    	PrintLine("Updating");
+	    	graph.Edges["163"].Weight = (float)rand.NextDouble()*rate; // 11_2 &amp; 10_3
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["141"].Weight = (float)rand.NextDouble()*rate; // 9_1 &amp; 9_2
+	    	PrintLine("Updating");
+	    	graph.Edges["145"].Weight = (float)rand.NextDouble()*rate; // 9_2 &amp; 9_3
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["123"].Weight = (float)rand.NextDouble()*rate; // 8_1 &amp; 8_2
+	    	PrintLine("Updating");
+	    	graph.Edges["130"].Weight = (float)rand.NextDouble()*rate; // 8_2 &amp; 8_3
+	    	PrintLine("Updating");
+	    	
+	    	graph.Edges["106"].Weight = (float)rand.NextDouble()*rate; // 7_1 &amp; 7_2
+	    	PrintLine("Updating");
+	    	graph.Edges["109"].Weight = (float)rand.NextDouble()*rate; // 7_2 &amp; 7_3
+	    	PrintLine("Updating");
+	    	
+	    	*/
+	    	
+	    	
+	    	test = rand.NextDouble()*rate;
+	    	
+	    	//double tmp = duration + test;
+	    	
+	    	//PrintLine(graph.Edges["161"].Weight.ToString());
+	    	//PrintLine(graph.Edges["160"].Weight.ToString());
+	    	
+	    	Dictionary&lt;string, Object&gt; final_results = new Dictionary&lt;string, Object&gt;()
+        	{
+        		{"json", null},{"duration", null}, {"test",null}
+       		};
+	    	
+	    	
+	    	
+	    	//Convet the updated map to JSON to send back to the simulator
+			//Output = ser.Serialize(graph);
+			final_results["json"] = ser.Serialize(graph);
+			//PrintLine(tmp.ToString());
+			
+			//final_results["test"] = tmp.ToString();
+			
+			//final_results["json"] = "HAAH";
+			Output = final_results;
+			
+			//PrintLine(Output.ToString());
+		
+			//PrintLine(Input.ToString());
+				
+				
+    	}
+    	catch(Exception e) 
+    	{
+    		PrintLine("ERROR in UM" + e);
+    	}
+        
+
+    }
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">SMDiagnostics.dll</Value>
+        <Value Index="6">System.Configuration.dll</Value>
+        <Value Index="7">System.Core.dll</Value>
+        <Value Index="8">System.dll</Value>
+        <Value Index="9">System.Drawing.dll</Value>
+        <Value Index="10">System.Dynamic.dll</Value>
+        <Value Index="11">System.Runtime.dll</Value>
+        <Value Index="12">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="13">System.Runtime.Serialization.dll</Value>
+        <Value Index="14">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="15">System.ServiceModel.Internals.dll</Value>
+        <Value Index="16">System.Web.dll</Value>
+        <Value Index="17">System.Web.Extensions.dll</Value>
+        <Value Index="18">System.Windows.Forms.dll</Value>
+        <Value Index="19">System.Xaml.dll</Value>
+        <Value Index="20">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>46</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1968.36440580655</Left>
+        <Top>2327.71685233272</Top>
+      </Location>
+      <Values>
+        <Value Index="0">filter</Value>
+        <Value Index="1">using System;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
+
+[Serializable]
+public class filter : CodeUtilities.CodeBase
+{
+    public filter()
+    {
+        
+    }
+    public class MapGraph
+	{
+	    public Dictionary&lt;string, string[]&gt; AdjacencyList { get; set; }
+	    public Dictionary&lt;string, Position&gt; Nodes { get; set; }
+	    public Dictionary&lt;string, GraphEdge&gt; Edges { get; set; }
+	}
+	
+	public class Position
+	{
+	    public double WorldPosX { get; set; }
+	    public double WorldPosY { get; set; }
+	    public double WorldPosZ { get; set; }
+	}
+	
+	public class GraphEdge
+	{
+	    public string From { get; set; }
+	    public string To { get; set; }
+	    public float Weight { get; set; }
+	}
+
+    // ----------------------- Heap ----------------------- //
+    public class Element
+    {
+        public string v { get; set; } //vertex
+        public float d { get; set; } // distance
+        public string p { get; set; } // parent
+        public Element(string vertex, int distance, string parent)
+        {
+            v = vertex;
+            d = distance;
+            p = parent;
+        }
+    };
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+    /*
+    	try{
+    	
+    		Random rand = new Random();
+    		 
+    		JavaScriptSerializer ser = new JavaScriptSerializer();
+    		MapGraph graph = ser.Deserialize&lt;MapGraph&gt;(Input.ToString());
+    		
+    		int rate = 50;
+    		
+	    	
+	    	//Update Weight
+	    	graph.Edges["161"].Weight = (float)rand.NextDouble()*rate; // 11_1 &amp; 10_1
+	    	graph.Edges["160"].Weight = (float)rand.NextDouble()*rate; // 10_1 &amp; 9_1
+	    	graph.Edges["125"].Weight = (float)rand.NextDouble()*rate; // 9_1 &amp; 8_1
+	    	
+	    	PrintLine(graph.Edges["160"].Weight.ToString());
+    		
+    	
+    	}
+    	
+    	catch(Exception e){
+    	
+    		
+    	}
+      */
+    }
+    
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">SMDiagnostics.dll</Value>
+        <Value Index="6">System.Collections.dll</Value>
+        <Value Index="7">System.Configuration.dll</Value>
+        <Value Index="8">System.Core.dll</Value>
+        <Value Index="9">System.dll</Value>
+        <Value Index="10">System.Drawing.dll</Value>
+        <Value Index="11">System.Dynamic.dll</Value>
+        <Value Index="12">System.IO.Compression.FileSystem.dll</Value>
+        <Value Index="13">System.Runtime.dll</Value>
+        <Value Index="14">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="15">System.Runtime.Serialization.dll</Value>
+        <Value Index="16">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="17">System.ServiceModel.Internals.dll</Value>
+        <Value Index="18">System.Web.dll</Value>
+        <Value Index="19">System.Web.Extensions.dll</Value>
+        <Value Index="20">System.Windows.Forms.dll</Value>
+        <Value Index="21">System.Xaml.dll</Value>
+        <Value Index="22">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>47</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>48</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>41</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>57</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1001.62029806767</Left>
+        <Top>1064.90853233577</Top>
+      </Location>
+      <Values>
+        <Value>state.count + 1</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>48</ActivityID>
+      <PreviousActivities>
+        <ActivityID>47</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>49</ActivityID>
+        <ActivityID>1</ActivityID>
+        <ActivityID>90</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>57</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>58</GraphEdgeID>
+        <GraphEdgeID>9</GraphEdgeID>
+        <GraphEdgeID>59</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1186.54985559377</Left>
+        <Top>1070.4494610318</Top>
+      </Location>
+      <Values>
+        <Value>count</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>4</ActivityNameInt>
+      <ActivityID>49</ActivityID>
+      <PreviousActivities Index="0">
+        <ActivityID>48</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="1">
+        <ActivityID>19</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="2">
+        <ActivityID>98</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>45</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines Index="0">
+        <GraphEdgeID>58</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="1">
+        <GraphEdgeID>34</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="2">
+        <GraphEdgeID>98</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>54</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1418.9206242041</Left>
+        <Top>1805.77273724038</Top>
+      </Location>
+      <Values>
+        <Value Index="0">g_count</Value>
+        <Value Index="1">json</Value>
+        <Value Index="2">currentTime</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>50</ActivityID>
+      <PreviousActivities>
+        <ActivityID>93</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>95</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>89</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>90</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>431.859993878378</Left>
+        <Top>1391.50085149811</Top>
+      </Location>
+      <Values>
+        <Value>Time</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>53</ActivityID>
+      <PreviousActivities>
+        <ActivityID>45</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>1</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>55</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>8</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1820.77478322486</Left>
+        <Top>1818.76044673759</Top>
+      </Location>
+      <Values>
+        <Value>json</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>54</ActivityID>
+      <PreviousActivities>
+        <ActivityID>45</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>56</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1814.97478322486</Left>
+        <Top>1906.56044673759</Top>
+      </Location>
+      <Values>
+        <Value>test</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>55</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1600.1210264588</Left>
+        <Top>1887.56044673759</Top>
+      </Location>
+      <Values>
+        <Value>Testing Traffic Pattern</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>56</ActivityID>
+      <PreviousActivities>
+        <ActivityID>0</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>57</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>3</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>61</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2222.64545269601</Left>
+        <Top>1122.78534526471</Top>
+      </Location>
+      <Values>
+        <Value>c_path</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>6</ActivityNameInt>
+      <ActivityID>57</ActivityID>
+      <PreviousActivities>
+        <ActivityID>56</ActivityID>
+      </PreviousActivities>
+      <NextActivities Index="0">
+        <ActivityID>63</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities>
+        <ActivityID>64</ActivityID>
+      </AlternateNextActivities>
+      <IncomingLines>
+        <GraphEdgeID>61</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines Index="0">
+        <GraphEdgeID>62</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines>
+        <GraphEdgeID>63</GraphEdgeID>
+      </AlternateOutgoingLines>
+      <Location>
+        <Left>2364.18362320444</Left>
+        <Top>1120.24121828058</Top>
+      </Location>
+      <Values>
+        <Value Index="0">value == "Error"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>58</ActivityID>
+      <PreviousActivities>
+        <ActivityID>60</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>64</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3845.97126340069</Left>
+        <Top>1554.71758897938</Top>
+      </Location>
+      <Values>
+        <Value>latestPath</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>59</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2206.10321572505</Left>
+        <Top>982.697035274045</Top>
+      </Location>
+      <Values>
+        <Value>In the format of Robot Message</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>60</ActivityID>
+      <PreviousActivities>
+        <ActivityID>69</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>58</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>65</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>64</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3687.0851084249</Left>
+        <Top>1557.11758897938</Top>
+      </Location>
+      <Values>
+        <Value Index="0">chop</Value>
+        <Value Index="1">using System;
+
+[Serializable]
+public class chop : CodeUtilities.CodeBase
+{
+    public chop()
+    {
+        
+    }
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+      
+        
+        string[] nodes = Input.ToString().Split(' ');
+        
+
+        string newOutput = "";
+        
+        
+        
+        for(int i = 1; i &lt; nodes.Length;i++){
+        	
+        	newOutput += nodes[i];
+        	newOutput += " ";
+        	
+        
+        }
+        Output = newOutput;
+        //PrintLine(newOutput);
+        //PrintLine("");
+        
+        // You can pass output in a similar way.
+        
+    }
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">SMDiagnostics.dll</Value>
+        <Value Index="6">System.Configuration.dll</Value>
+        <Value Index="7">System.Core.dll</Value>
+        <Value Index="8">System.dll</Value>
+        <Value Index="9">System.Drawing.dll</Value>
+        <Value Index="10">System.Dynamic.dll</Value>
+        <Value Index="11">System.Runtime.dll</Value>
+        <Value Index="12">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="13">System.Runtime.Serialization.dll</Value>
+        <Value Index="14">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="15">System.ServiceModel.Internals.dll</Value>
+        <Value Index="16">System.Web.dll</Value>
+        <Value Index="17">System.Web.Extensions.dll</Value>
+        <Value Index="18">System.Windows.Forms.dll</Value>
+        <Value Index="19">System.Xaml.dll</Value>
+        <Value Index="20">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>61</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3661.95295949158</Left>
+        <Top>1610.83360106398</Top>
+      </Location>
+      <Values>
+        <Value>Remove First Node of Path</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>62</ActivityID>
+      <PreviousActivities>
+        <ActivityID>64</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>69</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>66</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>67</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2812.52697975514</Left>
+        <Top>1406.35187893249</Top>
+      </Location>
+      <Values>
+        <Value>currentPath</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>63</ActivityID>
+      <PreviousActivities>
+        <ActivityID>57</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>62</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2531.9976533296</Left>
+        <Top>1113.66312304248</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>6</ActivityNameInt>
+      <ActivityID>64</ActivityID>
+      <PreviousActivities>
+        <ActivityID>57</ActivityID>
+      </PreviousActivities>
+      <NextActivities Index="0">
+        <ActivityID>62</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities>
+        <ActivityID>65</ActivityID>
+      </AlternateNextActivities>
+      <IncomingLines>
+        <GraphEdgeID>63</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines Index="0">
+        <GraphEdgeID>66</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines>
+        <GraphEdgeID>68</GraphEdgeID>
+      </AlternateOutgoingLines>
+      <Location>
+        <Left>2679.66649273302</Left>
+        <Top>1406.60775194835</Top>
+      </Location>
+      <Values>
+        <Value Index="0">state.count == 1</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>65</ActivityID>
+      <PreviousActivities>
+        <ActivityID>64</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>68</ActivityID>
+        <ActivityID>67</ActivityID>
+        <ActivityID>75</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>68</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>69</GraphEdgeID>
+        <GraphEdgeID>70</GraphEdgeID>
+        <GraphEdgeID>71</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2747.34047010079</Left>
+        <Top>1524.92520330304</Top>
+      </Location>
+      <Values>
+        <Value>currentPath</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>66</ActivityID>
+      <PreviousActivities>
+        <ActivityID>68</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>76</ActivityID>
+        <ActivityID>77</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>72</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>73</GraphEdgeID>
+        <GraphEdgeID>74</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3283.75177546514</Left>
+        <Top>1768.31636386453</Top>
+      </Location>
+      <Values>
+        <Value Index="0">compare</Value>
+        <Value Index="1">using System;
+using System.Collections.Generic;
+using System.Linq;
+
+[Serializable]
+public class compare : CodeUtilities.CodeBase
+{
+    public compare()
+    {
+        
+    }
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+    	//Input
+		Dictionary&lt;string, Object&gt; input = (Dictionary&lt;string, Object&gt;)Input;
+		string cPath = input["cPath"].ToString();
+		string cPath_NoSpace = String.Concat(cPath.Where(c =&gt; !Char.IsWhiteSpace(c))); //Remove White Space in the String
+		string laPath = input["laPath"].ToString();
+		string laPath_NoSpace = String.Concat(laPath.Where(c =&gt; !Char.IsWhiteSpace(c))); //Remove White Space in the String
+		
+		int p_c_count = Int32.Parse(input["p_c_count"].ToString());
+		
+		//Output
+		Dictionary&lt;string, Object&gt; final_results = new Dictionary&lt;string, Object&gt;()
+        {
+        	{"path", null}, {"p_c_count", null}
+        }; // c_path used to compare the path plan
+		
+		//Content   
+        if(cPath_NoSpace.Equals(laPath_NoSpace)){
+        	
+        	/*
+        		If the current plan follows with original plan,
+        		Simply output one of the string 
+        	*/
+        	
+        	PrintLine("@@@@@");
+        	
+            //PrintLine(cPath);
+        	//PrintLine(laPath);
+        	final_results["path"] = laPath;
+        	
+        	
+        }else{
+        	/*
+        		Else output replace the latest path with current path
+        	*/
+        	//PrintLine(cPath);
+        	//PrintLine(laPath);
+        	p_c_count++;
+        	final_results["path"] = cPath; 
+        }
+        
+        final_results["p_c_count"] = p_c_count.ToString();
+        
+        Output = final_results;
+
+        
+
+        
+
+    }
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">SMDiagnostics.dll</Value>
+        <Value Index="6">System.Configuration.dll</Value>
+        <Value Index="7">System.Core.dll</Value>
+        <Value Index="8">System.dll</Value>
+        <Value Index="9">System.Drawing.dll</Value>
+        <Value Index="10">System.Dynamic.dll</Value>
+        <Value Index="11">System.Linq.dll</Value>
+        <Value Index="12">System.Runtime.dll</Value>
+        <Value Index="13">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="14">System.Runtime.Serialization.dll</Value>
+        <Value Index="15">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="16">System.ServiceModel.Internals.dll</Value>
+        <Value Index="17">System.Web.dll</Value>
+        <Value Index="18">System.Web.Extensions.dll</Value>
+        <Value Index="19">System.Windows.Forms.dll</Value>
+        <Value Index="20">System.Xaml.dll</Value>
+        <Value Index="21">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>67</ActivityID>
+      <PreviousActivities>
+        <ActivityID>65</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>68</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>70</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>75</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2864.91244629063</Left>
+        <Top>1632.28048024054</Top>
+      </Location>
+      <Values>
+        <Value>state.latestPath</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>4</ActivityNameInt>
+      <ActivityID>68</ActivityID>
+      <PreviousActivities Index="0">
+        <ActivityID>65</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="1">
+        <ActivityID>67</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="2">
+        <ActivityID>75</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>66</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines Index="0">
+        <GraphEdgeID>69</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="1">
+        <GraphEdgeID>75</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="2">
+        <GraphEdgeID>76</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>72</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3131.53452176427</Left>
+        <Top>1718.02499071496</Top>
+      </Location>
+      <Values>
+        <Value Index="0">cPath</Value>
+        <Value Index="1">laPath</Value>
+        <Value Index="2">p_c_count</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>5</ActivityNameInt>
+      <ActivityID>69</ActivityID>
+      <PreviousActivities>
+        <ActivityID>76</ActivityID>
+        <ActivityID>62</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>60</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>77</GraphEdgeID>
+        <GraphEdgeID>67</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>65</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3580.43295030316</Left>
+        <Top>1578.82621582982</Top>
+      </Location>
+      <Values />
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>70</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2174.29761348415</Left>
+        <Top>1185.0942341536</Top>
+      </Location>
+      <Values>
+        <Value>In the format of string</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>71</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3064.48735833634</Left>
+        <Top>1835.59465971443</Top>
+      </Location>
+      <Values>
+        <Value>Comapre the original path with the current path</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>72</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1008.81443491713</Left>
+        <Top>1416.86383808356</Top>
+      </Location>
+      <Values>
+        <Value>Robot Receiving Map</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>3</ActivityNameInt>
+      <ActivityID>73</ActivityID>
+      <PreviousActivities>
+        <ActivityID>4</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>74</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>16</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>78</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>329.683121960629</Left>
+        <Top>1244.31574842086</Top>
+      </Location>
+      <Values>
+        <Value>0</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>74</ActivityID>
+      <PreviousActivities>
+        <ActivityID>73</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>78</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>470.415638550727</Left>
+        <Top>1240.72250697114</Top>
+      </Location>
+      <Values>
+        <Value>pathChangeCount</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>75</ActivityID>
+      <PreviousActivities>
+        <ActivityID>65</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>68</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>71</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>76</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2849.31640709201</Left>
+        <Top>1750.41168671033</Top>
+      </Location>
+      <Values>
+        <Value>state.pathChangeCount</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>76</ActivityID>
+      <PreviousActivities>
+        <ActivityID>66</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>69</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>73</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>77</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3448.86631375903</Left>
+        <Top>1719.42574620245</Top>
+      </Location>
+      <Values>
+        <Value>path</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>77</ActivityID>
+      <PreviousActivities>
+        <ActivityID>66</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>78</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>74</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>79</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3457.04395541293</Left>
+        <Top>1816.17714997989</Top>
+      </Location>
+      <Values>
+        <Value>p_c_count</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>78</ActivityID>
+      <PreviousActivities>
+        <ActivityID>77</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>79</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3596.04224326124</Left>
+        <Top>1814.19313772874</Top>
+      </Location>
+      <Values>
+        <Value>pathChangeCount</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>79</ActivityID>
+      <PreviousActivities>
+        <ActivityID>81</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>80</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>80</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>81</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3661.44138312372</Left>
+        <Top>1112.79028656129</Top>
+      </Location>
+      <Values>
+        <Value>"Path Changed " + state.pathChangeCount + " time(s)"</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>80</ActivityID>
+      <PreviousActivities>
+        <ActivityID>79</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>81</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>4015.46894820794</Left>
+        <Top>1109.15092623684</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>81</ActivityID>
+      <PreviousActivities>
+        <ActivityID>34</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>39</ActivityID>
+        <ActivityID>79</ActivityID>
+        <ActivityID>85</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>46</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>49</GraphEdgeID>
+        <GraphEdgeID>80</GraphEdgeID>
+        <GraphEdgeID>82</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3484.38421109717</Left>
+        <Top>1048.73489765083</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>82</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>1</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>42</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>10</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1004.59120259739</Left>
+        <Top>1173.43410892658</Top>
+      </Location>
+      <Values>
+        <Value>state.Time</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>83</ActivityID>
+      <PreviousActivities>
+        <ActivityID>0</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>84</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>4</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>83</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2263.4865786427</Left>
+        <Top>661.753223823413</Top>
+      </Location>
+      <Values>
+        <Value>newDuration</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>84</ActivityID>
+      <PreviousActivities>
+        <ActivityID>83</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>83</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2423.19983473837</Left>
+        <Top>665.569536987415</Top>
+      </Location>
+      <Values>
+        <Value>Time</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>85</ActivityID>
+      <PreviousActivities>
+        <ActivityID>81</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>86</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>82</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>84</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3664.15056615095</Left>
+        <Top>1267.17521373038</Top>
+      </Location>
+      <Values>
+        <Value>"Time Actual Cost: " + state.Time</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>86</ActivityID>
+      <PreviousActivities>
+        <ActivityID>85</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>84</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>3941.4125834201</Left>
+        <Top>1289.86340248763</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>87</ActivityID>
+      <PreviousActivities>
+        <ActivityID>0</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>5</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2261.37014986323</Left>
+        <Top>441.952554836574</Top>
+      </Location>
+      <Values>
+        <Value>o_cost</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>88</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>2191.18724933849</Left>
+        <Top>511.063982052759</Top>
+      </Location>
+      <Values>
+        <Value>The cost of applying original path</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>89</ActivityID>
+      <PreviousActivities>
+        <ActivityID>90</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>85</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1660.02696703285</Left>
+        <Top>1214.93876372039</Top>
+      </Location>
+      <Values>
+        <Value></Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>90</ActivityID>
+      <PreviousActivities>
+        <ActivityID>48</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>89</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>59</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>85</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1418.68846675629</Left>
+        <Top>1213.58848611971</Top>
+      </Location>
+      <Values>
+        <Value>"Global Counter: " + state.count</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>93</ActivityID>
+      <PreviousActivities>
+        <ActivityID>4</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>50</ActivityID>
+        <ActivityID>99</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>88</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>89</GraphEdgeID>
+        <GraphEdgeID>94</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>261.8</Left>
+        <Top>1392.28</Top>
+      </Location>
+      <Values>
+        <Value Index="0">worldSpawn</Value>
+        <Value Index="1">using System;
+
+[Serializable]
+public class worldSpawn : CodeUtilities.CodeBase
+{
+    public worldSpawn()
+    {
+        
+    }
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+		try{
+		
+			Random rand = new Random();
+			string interval  =  rand.Next(24).ToString();
+			PrintLine("The Scene is initialized at "+ interval +":00 (24-hour Clock)");
+			//PrintLine("");
+			Output = interval;
+		}
+		catch(Exception e){
+			PrintLine(e.ToString());
+		}
+    }
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">SMDiagnostics.dll</Value>
+        <Value Index="6">System.Configuration.dll</Value>
+        <Value Index="7">System.Core.dll</Value>
+        <Value Index="8">System.dll</Value>
+        <Value Index="9">System.Drawing.dll</Value>
+        <Value Index="10">System.Dynamic.dll</Value>
+        <Value Index="11">System.IO.Compression.FileSystem.dll</Value>
+        <Value Index="12">System.Runtime.dll</Value>
+        <Value Index="13">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="14">System.Runtime.Serialization.dll</Value>
+        <Value Index="15">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="16">System.ServiceModel.Internals.dll</Value>
+        <Value Index="17">System.Web.dll</Value>
+        <Value Index="18">System.Web.Extensions.dll</Value>
+        <Value Index="19">System.Windows.Forms.dll</Value>
+        <Value Index="20">System.Xaml.dll</Value>
+        <Value Index="21">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>95</ActivityID>
+      <PreviousActivities>
+        <ActivityID>50</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>96</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>90</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>91</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>566.466736049452</Left>
+        <Top>1388.92176704065</Top>
+      </Location>
+      <Values>
+        <Value>""</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>28</ActivityNameInt>
+      <ActivityID>96</ActivityID>
+      <PreviousActivities>
+        <ActivityID>95</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>91</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>701.8</Left>
+        <Top>1385.08</Top>
+      </Location>
+      <Values>
+        <Value />
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>97</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>101</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>92</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>96</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>975.432106204478</Left>
+        <Top>2094.92449696822</Top>
+      </Location>
+      <Values>
+        <Value>state.Time</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>44</ActivityNameInt>
+      <ActivityID>98</ActivityID>
+      <PreviousActivities>
+        <ActivityID>101</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>49</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>95</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>98</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1366.16371281021</Left>
+        <Top>2161.27518543288</Top>
+      </Location>
+      <Values>
+        <Value Index="0">timePrinter</Value>
+        <Value Index="1">using System;
+using System.Collections.Generic;
+
+[Serializable]
+public class timePrinter : CodeUtilities.CodeBase
+{
+    public timePrinter()
+    {
+        
+    }
+
+    // To execute your code, you must override the Execute method.
+    public override void Execute()
+    {
+		try{
+		
+			Dictionary&lt;string, Object&gt; input = (Dictionary&lt;string, Object&gt;)Input; 
+			
+			string startTime = input["StartTime"].ToString();
+			string totalCost = input["currentTime"].ToString();
+			//double actualCost = totalCost - (double)startTime;
+			
+			PrintLine("Start At: " + startTime.ToString());
+			//PrintLine("This Road Segment Cost: " + actualCost);
+			
+			
+			Output = input["currentTime"].ToString();
+			
+			
+			
+			
+		
+		}
+		catch(Exception e){
+			PrintLine(e.ToString());
+		}
+    }
+}</Value>
+        <Value Index="2">Accessibility.dll</Value>
+        <Value Index="3">Microsoft.CSharp.dll</Value>
+        <Value Index="4">mscorlib.dll</Value>
+        <Value Index="5">SMDiagnostics.dll</Value>
+        <Value Index="6">System.Configuration.dll</Value>
+        <Value Index="7">System.Core.dll</Value>
+        <Value Index="8">System.dll</Value>
+        <Value Index="9">System.Drawing.dll</Value>
+        <Value Index="10">System.Dynamic.dll</Value>
+        <Value Index="11">System.IO.Compression.FileSystem.dll</Value>
+        <Value Index="12">System.Runtime.dll</Value>
+        <Value Index="13">System.Runtime.InteropServices.WindowsRuntime.dll</Value>
+        <Value Index="14">System.Runtime.Serialization.dll</Value>
+        <Value Index="15">System.Runtime.WindowsRuntime.dll</Value>
+        <Value Index="16">System.ServiceModel.Internals.dll</Value>
+        <Value Index="17">System.Web.dll</Value>
+        <Value Index="18">System.Web.Extensions.dll</Value>
+        <Value Index="19">System.Windows.Forms.dll</Value>
+        <Value Index="20">System.Xaml.dll</Value>
+        <Value Index="21">System.Xml.Linq.dll</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>1</ActivityNameInt>
+      <ActivityID>99</ActivityID>
+      <PreviousActivities>
+        <ActivityID>93</ActivityID>
+      </PreviousActivities>
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>94</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>435.294725124686</Left>
+        <Top>1507.43410607578</Top>
+      </Location>
+      <Values>
+        <Value>startTime</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>4</ActivityNameInt>
+      <ActivityID>101</ActivityID>
+      <PreviousActivities Index="0">
+        <ActivityID>97</ActivityID>
+      </PreviousActivities>
+      <PreviousActivities Index="1">
+        <ActivityID>102</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>98</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines Index="0">
+        <GraphEdgeID>96</GraphEdgeID>
+      </IncomingLines>
+      <IncomingLines Index="1">
+        <GraphEdgeID>97</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>95</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1184.74165196547</Left>
+        <Top>2137.24054586413</Top>
+      </Location>
+      <Values>
+        <Value Index="0">currentTime</Value>
+        <Value Index="1">StartTime</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>2</ActivityNameInt>
+      <ActivityID>102</ActivityID>
+      <PreviousActivities>
+        <ActivityID>31</ActivityID>
+      </PreviousActivities>
+      <NextActivities>
+        <ActivityID>101</ActivityID>
+      </NextActivities>
+      <AlternateNextActivities />
+      <IncomingLines>
+        <GraphEdgeID>99</GraphEdgeID>
+      </IncomingLines>
+      <OutgoingLines>
+        <GraphEdgeID>97</GraphEdgeID>
+      </OutgoingLines>
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>979.918225519304</Left>
+        <Top>2182.47027369592</Top>
+      </Location>
+      <Values>
+        <Value>state.startTime</Value>
+      </Values>
+    </Activity>
+    <Activity IsFlipped="false">
+      <ActivityNameInt>11</ActivityNameInt>
+      <ActivityID>103</ActivityID>
+      <PreviousActivities />
+      <NextActivities />
+      <AlternateNextActivities />
+      <IncomingLines />
+      <OutgoingLines />
+      <AlternateOutgoingLines />
+      <Location>
+        <Left>1004.70529124271</Left>
+        <Top>2037.89893026454</Top>
+      </Location>
+      <Values>
+        <Value>Time = startTime + Cost</Value>
+      </Values>
+    </Activity>
+  </ProgrammingPanel>
+  <Variables>
+    <Variable>
+      <VariableName>source</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>destination</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>map</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>arrived</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>finalPath</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>new_Weight</VariableName>
+      <VariableType>System.Double</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>count</VariableName>
+      <VariableType>System.Int32</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>Time</VariableName>
+      <VariableType>System.Double</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>latestPath</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>currentPath</VariableName>
+      <VariableType>System.String</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>pathChangeCount</VariableName>
+      <VariableType>System.Int32</VariableType>
+    </Variable>
+    <Variable>
+      <VariableName>startTime</VariableName>
+      <VariableType>System.Int32</VariableType>
+    </Variable>
+  </Variables>
+  <UsedCustomActivityNames />
+</Program>
